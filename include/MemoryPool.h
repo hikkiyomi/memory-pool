@@ -1,22 +1,24 @@
 #pragma once
 
+#include "InnerTypes.h"
+
 #include <cinttypes>
 #include <stdexcept>
 #include <utility>
 
 template<typename T>
-class PoolAllocator {
+class PoolAllocator : public InnerTypes<T> {
 public:
-    using value_type      = T;
-    using reference       = T&;
-    using const_reference = const T&;
-    using pointer         = T*;
-    using const_pointer   = const T*;
-    using size_type       = size_t;
-    using difference_type = ptrdiff_t;
+    using value_type      = typename InnerTypes<T>::value_type;
+    using reference       = value_type&;
+    using const_reference = const value_type&;
+    using pointer         = value_type*;
+    using const_pointer   = const value_type*;
+    using size_type       = typename InnerTypes<T>::size_type;
+    using difference_type = typename InnerTypes<T>::difference_type;
 public:
-    PoolAllocator(
-        uint32_t amount_of_blocks = 1000000,
+    explicit PoolAllocator(
+        uint32_t amount_of_blocks = 400000,
         uint32_t size_of_block = sizeof(T)
     )
         : num_of_blocks_(amount_of_blocks)
@@ -62,52 +64,14 @@ public:
     }
 
     template<typename U>
-    PoolAllocator(const PoolAllocator<U>& other) noexcept
-        : num_of_blocks_(other.num_of_blocks_)
-        , size_of_block_(other.size_of_block_)
-        , real_size_of_block_(other.real_size_of_block_)
-        , free_blocks_(other.num_of_blocks_)
-        , initialized_(0)
-        , data_begin_(other.data_begin_)
-        , next_(other.data_begin_)
-    {}
+    PoolAllocator(const PoolAllocator<U>&) {}
 
-    PoolAllocator(PoolAllocator<T>&& other) noexcept
-        : num_of_blocks_(std::move(other.num_of_blocks_))
-        , size_of_block_(std::move(other.size_of_block_))
-        , real_size_of_block_(std::move(other.real_size_of_block_))
-        , initialized_(0)
-        , data_begin_(std::exchange(other.data_begin_, nullptr))
-    {
-        free_blocks_ = num_of_blocks_;
-        next_ = data_begin_;
-    }
+    PoolAllocator(PoolAllocator<T>&& other) = default;
 
-    PoolAllocator& operator=(PoolAllocator<T>&& other) noexcept {
-        delete[] data_begin_;
-
-        num_of_blocks_ = std::move(other.num_of_blocks_);
-        size_of_block_ = std::move(other.size_of_block_);
-        real_size_of_block_ = std::move(other.size_of_block_);
-        free_blocks_ = num_of_blocks_;
-        initialized_ = 0;
-        data_begin_ = std::exchange(other.data_begin_, nullptr);
-        next_ = data_begin_;
-
-        return *this;
-    }
+    PoolAllocator& operator=(PoolAllocator<T>&& other) = default;
 
     template<typename U>
-    PoolAllocator(PoolAllocator<U>&& other) noexcept
-        : num_of_blocks_(std::move(other.num_of_blocks_))
-        , size_of_block_(std::move(other.size_of_block_))
-        , real_size_of_block_(std::move(other.real_size_of_block_))
-        , initialized_(0)
-        , data_begin_(std::exchange(other.data_begin_, nullptr))
-    {
-        free_blocks_ = num_of_blocks_;
-        next_ = data_begin_;
-    }
+    PoolAllocator(PoolAllocator<U>&&) {};
 
     ~PoolAllocator() {
         delete[] data_begin_;
@@ -123,11 +87,11 @@ public:
         return !(*this == other);
     }
 public:
-    [[nodiscard]] pointer allocate(size_t n) {
-        size_t total_size = n * sizeof(T);
-        size_t blocks_needed = TakenBlocks(total_size);
+    [[nodiscard]] pointer allocate(size_type n) {
+        size_type total_size = n * sizeof(T);
+        size_type blocks_needed = TakenBlocks(total_size);
 
-        for (size_t i = 0; i < blocks_needed; ++i) {
+        for (size_type i = 0; i < blocks_needed; ++i) {
             if (initialized_ < num_of_blocks_) {
                 uint32_t* number_of_next = reinterpret_cast<uint32_t*>(GetAddressFromIndex(initialized_));
                 *number_of_next = initialized_ + 1;
@@ -156,12 +120,12 @@ public:
     }
 
     void deallocate(pointer ptr, size_type n) noexcept {
-        size_t total_size = n * sizeof(T);
-        size_t freed_blocks = TakenBlocks(total_size);
+        size_type total_size = n * sizeof(T);
+        size_type freed_blocks = TakenBlocks(total_size);
         uint8_t* current_block = Shift(reinterpret_cast<uint8_t*>(ptr) - kOffset, freed_blocks - 1);
 
-        for (size_t i = freed_blocks; i > 0; --i) {
-            size_t next_index = num_of_blocks_;
+        for (size_type i = freed_blocks; i > 0; --i) {
+            size_type next_index = num_of_blocks_;
 
             if (next_) {
                 next_index = GetIndexFromAddress(next_);
@@ -174,6 +138,24 @@ public:
 
         free_blocks_ += freed_blocks;
     }
+public:
+    uint32_t GetNumberOfBlocks() const noexcept {
+        return num_of_blocks_;
+    }
+
+    uint32_t GetSizeOfBlocks() const noexcept {
+        return size_of_block_;
+    }
+
+    uint32_t GetSurplusMemory(size_type total_size) const noexcept {
+        return TakenBlocks(total_size) * size_of_block_ - total_size;
+    }
+
+    bool IsIn(pointer ptr) const noexcept {
+        uint8_t* data_pointer = reinterpret_cast<uint8_t*>(ptr);
+        return data_begin_ <= data_pointer 
+            && data_pointer < data_begin_ + num_of_blocks_ * real_size_of_block_;
+    };
 private:
     static const uint32_t kOffset = 4;
 
@@ -212,20 +194,20 @@ private:
         return static_cast<uint32_t>(ptr - data_begin_) / real_size_of_block_;
     }
 
-    size_t TakenBlocks(size_t total_size) const noexcept {
+    size_type TakenBlocks(size_type total_size) const noexcept {
         return (total_size + size_of_block_ - 1) / size_of_block_;
     }
 
-    uint8_t* Shift(uint8_t* start, size_t blocks) const noexcept {
+    uint8_t* Shift(uint8_t* start, size_type blocks) const noexcept {
         return start + blocks * real_size_of_block_;
     }
 
-    uint8_t* GetSuitable(size_t blocks) {
+    uint8_t* GetSuitable(size_type blocks) {
         uint8_t* prev_free = nullptr;
         uint8_t* cur_row = next_;
         uint8_t* cur_block = next_;
         uint8_t* next_block = nullptr;
-        size_t counter = 0;
+        size_type counter = 0;
 
         while (counter < blocks) {
             uint32_t index_of_block = GetIndexFromAddress(cur_block);
