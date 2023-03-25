@@ -2,6 +2,7 @@
 
 #include <cinttypes>
 #include <stdexcept>
+#include <utility>
 
 template<typename T>
 class PoolAllocator {
@@ -15,7 +16,7 @@ public:
     using difference_type = ptrdiff_t;
 public:
     PoolAllocator(
-        uint32_t amount_of_blocks = 4096,
+        uint32_t amount_of_blocks = 1000000,
         uint32_t size_of_block = sizeof(T)
     )
         : num_of_blocks_(amount_of_blocks)
@@ -36,11 +37,93 @@ public:
         next_ = data_begin_;
     }
 
+    PoolAllocator(const PoolAllocator<T>& other) noexcept
+        : num_of_blocks_(other.num_of_blocks_)
+        , size_of_block_(other.size_of_block_)
+        , real_size_of_block_(other.real_size_of_block_)
+        , free_blocks_(other.num_of_blocks_)
+        , initialized_(0)
+        , data_begin_(other.data_begin_)
+        , next_(other.data_begin_)
+    {}
+
+    PoolAllocator& operator=(const PoolAllocator<T>& other) noexcept {
+        delete[] data_begin_;
+
+        num_of_blocks_ = other.num_of_blocks_;
+        size_of_block_ = other.size_of_block_;
+        real_size_of_block_ = other.size_of_block_;
+        free_blocks_ = other.num_of_blocks_;
+        initialized_ = 0;
+        data_begin_ = other.data_begin_;
+        next_ = other.next_;
+
+        return *this;
+    }
+
+    template<typename U>
+    PoolAllocator(const PoolAllocator<U>& other) noexcept
+        : num_of_blocks_(other.num_of_blocks_)
+        , size_of_block_(other.size_of_block_)
+        , real_size_of_block_(other.real_size_of_block_)
+        , free_blocks_(other.num_of_blocks_)
+        , initialized_(0)
+        , data_begin_(other.data_begin_)
+        , next_(other.data_begin_)
+    {}
+
+    PoolAllocator(PoolAllocator<T>&& other) noexcept
+        : num_of_blocks_(std::move(other.num_of_blocks_))
+        , size_of_block_(std::move(other.size_of_block_))
+        , real_size_of_block_(std::move(other.real_size_of_block_))
+        , initialized_(0)
+        , data_begin_(std::exchange(other.data_begin_, nullptr))
+    {
+        free_blocks_ = num_of_blocks_;
+        next_ = data_begin_;
+    }
+
+    PoolAllocator& operator=(PoolAllocator<T>&& other) noexcept {
+        delete[] data_begin_;
+
+        num_of_blocks_ = std::move(other.num_of_blocks_);
+        size_of_block_ = std::move(other.size_of_block_);
+        real_size_of_block_ = std::move(other.size_of_block_);
+        free_blocks_ = num_of_blocks_;
+        initialized_ = 0;
+        data_begin_ = std::exchange(other.data_begin_, nullptr);
+        next_ = data_begin_;
+
+        return *this;
+    }
+
+    template<typename U>
+    PoolAllocator(PoolAllocator<U>&& other) noexcept
+        : num_of_blocks_(std::move(other.num_of_blocks_))
+        , size_of_block_(std::move(other.size_of_block_))
+        , real_size_of_block_(std::move(other.real_size_of_block_))
+        , initialized_(0)
+        , data_begin_(std::exchange(other.data_begin_, nullptr))
+    {
+        free_blocks_ = num_of_blocks_;
+        next_ = data_begin_;
+    }
+
     ~PoolAllocator() {
         delete[] data_begin_;
     }
+public:
+    bool operator==(const PoolAllocator<T>& other) noexcept {
+        return num_of_blocks_ == other.num_of_blocks_
+            && size_of_block_ == other.size_of_block_
+            && data_begin_ == other.data_begin_;
+    }
 
-    pointer allocate(size_t n) {
+    bool operator!=(const PoolAllocator<T>& other) noexcept {
+        return !(*this == other);
+    }
+public:
+    [[nodiscard]] pointer allocate(size_t n) {
         size_t total_size = n * sizeof(T);
         size_t blocks_needed = TakenBlocks(total_size);
 
@@ -102,6 +185,24 @@ private:
 
     uint8_t* data_begin_;
     uint8_t* next_;
+private:
+    PoolAllocator(
+        uint32_t amount_of_blocks,
+        uint32_t size_of_block,
+        uint32_t real_size_of_block,
+        uint32_t free_blocks,
+        uint32_t initialized,
+        uint8_t* data_begin,
+        uint8_t* next
+    )
+        : num_of_blocks_(amount_of_blocks)
+        , size_of_block_(size_of_block)
+        , real_size_of_block_(real_size_of_block)
+        , free_blocks_(free_blocks)
+        , initialized_(initialized)
+        , data_begin_(data_begin)
+        , next_(next)
+    {}
 private:
     uint8_t* GetAddressFromIndex(uint32_t index) noexcept {
         return data_begin_ + (index * real_size_of_block_);

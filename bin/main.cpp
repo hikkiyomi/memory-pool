@@ -5,11 +5,11 @@
 #include <list>
 
 int main(int, char**) {
-    std::list<int, std::allocator<int>> v;
+    std::list<int, PoolAllocator<int>> v;
 
     auto start = std::chrono::high_resolution_clock::now();
 
-    for (int i = 0; i < 10000000; ++i) {
+    for (int i = 0; i < 1000000; ++i) {
         v.push_back(1);
     }
 
