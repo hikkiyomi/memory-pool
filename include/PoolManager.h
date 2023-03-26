@@ -55,6 +55,10 @@ public:
             try {
                 res = alloc_ptr->allocate(n);
             } catch (const std::bad_alloc& e) {}
+
+            if (res) {
+                break;
+            }
         }
 
         if (!res) {
@@ -73,9 +77,10 @@ public:
         }
     }
 private:
-    inline static const size_t kPoolsAmount = 1;
+    inline static const size_t kPoolsAmount = 2;
 
     PoolAllocator<T> pools_[kPoolsAmount] = {
-        PoolAllocator<T>(400000, sizeof(T)),
+        PoolAllocator<T>(1000000, sizeof(T) + 100),
+        PoolAllocator<T>(2000000, sizeof(T))
     };
 };

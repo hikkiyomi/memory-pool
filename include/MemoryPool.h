@@ -18,7 +18,7 @@ public:
     using difference_type = typename InnerTypes<T>::difference_type;
 public:
     explicit PoolAllocator(
-        uint32_t amount_of_blocks = 400000,
+        uint32_t amount_of_blocks = 1000000,
         uint32_t size_of_block = sizeof(T)
     )
         : num_of_blocks_(amount_of_blocks)
